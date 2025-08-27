@@ -460,7 +460,7 @@ const name = user.name; // имя пользователя
 
 ```javascript
 /**
- * Создает новый пользователя с валидацией данных
+ * Создает нового пользователя с валидацией данных
  * @param {Object} userData - Данные пользователя
  * @param {string} userData.email - Email пользователя
  * @param {string} userData.name - Имя пользователя

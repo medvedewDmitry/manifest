@@ -52,8 +52,8 @@ final class UserService
         // Бизнес-логика создания пользователя
         $user = $this->repository->create($data);
         
-        // Отправка приветственного письма
-        $this->emailService->sendWelcomeEmail($user->email);
+        // Отправка приветственного письма через очередь
+        SendWelcomeEmail::dispatch($user);
         
         return $user;
     }
@@ -82,7 +82,7 @@ final class CreateUserRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/'],
             'role' => ['sometimes', 'string', 'in:user,admin,moderator'],
         ];
     }
@@ -93,29 +93,15 @@ final class CreateUserRequest extends FormRequest
             'name.required' => 'Имя обязательно для заполнения',
             'email.unique' => 'Пользователь с таким email уже существует',
             'password.min' => 'Пароль должен содержать минимум 8 символов',
+            'password.regex' => 'Пароль должен содержать буквы в разных регистрах и цифры',
         ];
     }
-}
 
-// ✅ Валидация в бизнес-логике
-final class UserValidator
-{
-    public function validateUserData(array $data): ValidationResult
+    public function withValidator(Validator $validator): void
     {
-        $errors = [];
-
-        // Проверка бизнес-правил
-        if ($this->isReservedEmail($data['email'])) {
-            $errors['email'] = 'Этот email зарезервирован';
-        }
-
-        if ($this->isWeakPassword($data['password'])) {
-            $errors['password'] = 'Пароль слишком простой';
-        }
-
-        return new ValidationResult(
-            isValid: empty($errors),
-            errors: $errors
+        $validator->after(fn(Validator $validator) => 
+            $validator->errors()->add('email', 'Этот email зарезервирован')
+            when($this->isReservedEmail($this->email))
         );
     }
 
@@ -123,11 +109,6 @@ final class UserValidator
     {
         $reserved = ['admin@example.com', 'test@example.com'];
         return in_array($email, $reserved);
-    }
-
-    private function isWeakPassword(string $password): bool
-    {
-        return !preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/', $password);
     }
 }
 ```
@@ -142,29 +123,28 @@ final class ApiExceptionHandler extends ExceptionHandler
 {
     public function register(): void
     {
-        $this->reportable(function (Throwable $e) {
-            // Логирование ошибок
+        $this->reportable(fn(Throwable $e) => 
             Log::error('API Error', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString(),
-            ]);
-        });
+            ])
+        );
 
         // Маппинг исключений на HTTP коды
-        $this->renderable(function (ValidationException $e) {
-            return response()->json([
+        $this->renderable(fn(ValidationException $e) => 
+            response()->json([
                 'message' => 'Validation failed',
                 'errors' => $e->errors(),
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
-        });
+            ], Response::HTTP_UNPROCESSABLE_ENTITY)
+        );
 
-        $this->renderable(function (ModelNotFoundException $e) {
-            return response()->json([
+        $this->renderable(fn(ModelNotFoundException $e) => 
+            response()->json([
                 'message' => 'Resource not found',
-            ], Response::HTTP_NOT_FOUND);
-        });
+            ], Response::HTTP_NOT_FOUND)
+        );
     }
 }
 
@@ -190,12 +170,7 @@ final class UserService
 {
     public function getUserById(string $userId): User
     {
-        $user = $this->repository->findById($userId);
-        
-        if (!$user) {
-            throw new UserNotFoundException($userId);
-        }
-        
+        $user = User::findOrFail($userId);
         return $user;
     }
 
@@ -203,11 +178,9 @@ final class UserService
     {
         $user = $this->getUserById($userId);
         
-        if (!$currentUser->canDelete($user)) {
-            throw new InsufficientPermissionsException('delete_user');
-        }
+        throw_if(!$currentUser->canDelete($user), new InsufficientPermissionsException('delete_user'));
         
-        $this->repository->delete($user);
+        $user->delete();
     }
 }
 ```
@@ -232,7 +205,7 @@ final class UserService
         string $password,
         ?string $role = 'user',
     ): User {
-        $user = $this->repository->create([
+        $user = User::create([
             'name' => $name,
             'email' => $email,
             'password' => Hash::make($password),
@@ -366,7 +339,7 @@ final class User extends Authenticatable
     public function hasPermission(string $permission): bool
     {
         return $this->roles()
-            ->whereHas('permissions', fn($q) => $q->where('name', $permission))
+            ->whereHas('permissions', fn(Builder $q) => $q->where('name', $permission))
             ->exists();
     }
 }
@@ -396,7 +369,7 @@ final class UserResource extends JsonResource
             
             // Дополнительные поля
             'permissions' => $this->when($request->user()?->isAdmin(), 
-                fn() => $this->roles->pluck('permissions')->flatten()->pluck('name')
+                fn(): Collection => $this->roles->pluck('permissions')->flatten()->pluck('name')
             ),
         ];
     }
@@ -504,13 +477,13 @@ foreach ($users as $user) {
 // ✅ Хорошо — eager loading
 $users = User::with('posts')->get();
 foreach ($users as $user) {
-    echo $users->posts->count(); // Данные уже загружены
+    echo $user->posts->count(); // Данные уже загружены
 }
 
 // ✅ Условный eager loading
-$users = User::when($request->has('with_posts'), function ($query) {
-    $query->with('posts');
-})->get();
+        $users = User::when($request->has('with_posts'), fn(Builder $query) => 
+            $query->with('posts')
+        )->get();
 
 // ✅ Загрузка с подсчетом
 $users = User::withCount('posts')->get();
@@ -519,9 +492,9 @@ foreach ($users as $user) {
 }
 
 // ✅ Загрузка с условиями
-$users = User::with(['posts' => function ($query) {
-    $query->where('published', true);
-}])->get();
+        $users = User::with(['posts' => fn(Builder $query) => 
+            $query->where('published', true)
+        ])->get();
 ```
 
 ### 2. Кэширование
@@ -532,16 +505,16 @@ final class UserService
 {
     public function getActiveUsers(): Collection
     {
-        return Cache::remember('active_users', 3600, function () {
-            return User::active()->with('profile')->get();
-        });
+        return Cache::remember('active_users', 3600, fn() => 
+            User::active()->with('profile')->get()
+        );
     }
 
     public function getUserById(string $userId): ?User
     {
-        return Cache::remember("user_{$userId}", 1800, function () use ($userId) {
-            return User::with('profile', 'roles')->find($userId);
-        });
+        return Cache::remember("user_{$userId}", 1800, fn() => 
+            User::with('profile', 'roles')->find($userId)
+        );
     }
 
     public function updateUser(User $user, array $data): User
@@ -563,18 +536,18 @@ final class UserController extends Controller
     {
         $cacheKey = 'users_' . md5($request->fullUrl());
         
-        return Cache::remember($cacheKey, 300, function () use ($request) {
-            $users = User::query()
-                ->when($request->search, fn($q, $search) => 
-                    $q->where('name', 'like', "%{$search}%")
-                )
-                ->when($request->role, fn($q, $role) => 
-                    $q->where('role', $role)
-                )
-                ->paginate($request->per_page ?? 15);
-            
-            return new UserCollection($users);
-        });
+        return Cache::remember($cacheKey, 300, fn() => 
+            new UserCollection(
+                User::query()
+                    ->when($request->search, fn(Builder $q, string $search) => 
+                        $q->where('name', 'like', "%{$search}%")
+                    )
+                    ->when($request->role, fn(Builder $q, string $role) => 
+                        $q->where('role', $role)
+                    )
+                    ->paginate($request->per_page ?? 15)
+            )
+        );
     }
 }
 ```
@@ -610,7 +583,7 @@ final class UserService
 {
     public function createUser(array $data): User
     {
-        $user = $this->repository->create($data);
+        $user = User::create($data);
         
         // Отправка email в фоне
         SendWelcomeEmail::dispatch($user);
@@ -651,18 +624,15 @@ final class UserServiceTest extends TestCase
     use RefreshDatabase;
 
     private UserService $userService;
-    private MockObject $userRepository;
     private MockObject $emailService;
 
     protected function setUp(): void
     {
         parent::setUp();
         
-        $this->userRepository = $this->createMock(UserRepository::class);
         $this->emailService = $this->createMock(EmailService::class);
         
         $this->userService = new UserService(
-            $this->userRepository,
             $this->emailService
         );
     }
@@ -675,40 +645,27 @@ final class UserServiceTest extends TestCase
             'email' => 'john@example.com',
             'password' => 'password123',
         ];
-        
-        $user = new User($userData);
-        
-        $this->userRepository
-            ->expects($this->once())
-            ->method('create')
-            ->with($userData)
-            ->willReturn($user);
-        
-        $this->emailService
-            ->expects($this->once())
-            ->method('sendWelcomeEmail')
-            ->with($user->email);
 
         // Act
         $result = $this->userService->createUser($userData);
 
         // Assert
-        $this->assertSame($user, $result);
+        $this->assertInstanceOf(User::class, $result);
+        $this->assertEquals($userData['name'], $result->name);
+        $this->assertEquals($userData['email'], $result->email);
+        $this->assertDatabaseHas('users', [
+            'name' => $userData['name'],
+            'email' => $userData['email'],
+        ]);
     }
 
     public function test_throws_exception_when_user_not_found(): void
     {
         // Arrange
-        $userId = 'non-existent-id';
-        
-        $this->userRepository
-            ->expects($this->once())
-            ->method('findById')
-            ->with($userId)
-            ->willReturn(null);
+        $userId = 999;
 
         // Act & Assert
-        $this->expectException(UserNotFoundException::class);
+        $this->expectException(ModelNotFoundException::class);
         $this->userService->getUserById($userId);
     }
 }
@@ -727,8 +684,8 @@ final class UserApiTest extends TestCase
         $userData = [
             'name' => 'John Doe',
             'email' => 'john@example.com',
-            'password' => 'password123',
-            'password_confirmation' => 'password123',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
         ];
 
         $response = $this->postJson('/api/users', $userData);
@@ -764,8 +721,8 @@ final class UserApiTest extends TestCase
         $response = $this->postJson('/api/users', [
             'name' => 'John Doe',
             'email' => 'john@example.com',
-            'password' => 'password123',
-            'password_confirmation' => 'password123',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
         ]);
 
         $response->assertStatus(422)
@@ -782,8 +739,8 @@ final class UserApiTest extends TestCase
 // ✅ Защита от SQL инъекций (Eloquent делает это автоматически)
 $users = User::where('email', $email)->get();
 
-// ✅ Защита от XSS
-echo htmlspecialchars($user->name, ENT_QUOTES, 'UTF-8');
+// ✅ Защита от XSS (Blade делает это автоматически)
+{{ $user->name }}
 
 // ✅ CSRF защита (Laravel делает это автоматически)
 <form method="POST" action="/users">
@@ -792,9 +749,9 @@ echo htmlspecialchars($user->name, ENT_QUOTES, 'UTF-8');
 </form>
 
 // ✅ Rate limiting
-Route::middleware(['throttle:60,1'])->group(function () {
-    Route::post('/login', [AuthController::class, 'login']);
-});
+        Route::middleware(['throttle:60,1'])->group(fn() => 
+            Route::post('/login', [AuthController::class, 'login'])
+        );
 
 // ✅ Валидация файлов
 final class UploadAvatarRequest extends FormRequest
@@ -824,11 +781,9 @@ final class AuthController extends Controller
     {
         $credentials = $request->validated();
         
-        if (!Auth::attempt($credentials)) {
-            return response()->json([
-                'message' => 'Invalid credentials',
-            ], 401);
-        }
+        throw_unless(Auth::attempt($credentials), 
+            fn() => response()->json(['message' => 'Invalid credentials'], 401)
+        );
         
         $user = Auth::user();
         $token = $user->createToken('api-token')->plainTextToken;
