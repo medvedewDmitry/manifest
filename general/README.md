@@ -1171,6 +1171,7 @@ if (process.env.NODE_ENV === 'production') {
 - [Правила комментирования работы в системе контроля версий](https://confluence.eltc.ru/pages/viewpage.action?pageId=151716241)
 - [Правила ветвления в Git-репозитории (GitFlow)](https://confluence.eltc.ru/pages/viewpage.action?pageId=242522134)
 
+Шаблон для самого README.md для нового проекта найдешь [здесь](project-template.md)
 
 #### Структура веток
 
