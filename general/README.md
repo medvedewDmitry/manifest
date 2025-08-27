@@ -1195,8 +1195,8 @@ feature/JIRA-123 ← разработка
 3. **Правила именования веток**:
    ```
    feature/JIRA-123
-   feature/JIRA-124-fix-login-validation
-   hotfix/JIRA-125-security-patch
+   feature/JIRA-124-починил-валидацию логина
+   hotfix/JIRA-125-изменил-отображение-личного-кабинета
    ```
 
 #### Процесс разработки
