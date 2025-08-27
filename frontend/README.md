@@ -186,6 +186,17 @@ const activeUsers = users
   .filter(user => user.isActive)
   .map(user => ({ id: user.id, name: user.name }))
   .sort((a, b) => a.name.localeCompare(b.name));
+
+// Метод reduce для агрегации данных
+const userStats = users.reduce((stats, user) => {
+  stats.total++;
+  if (user.isActive) stats.active++;
+  if (user.role === 'admin') stats.admins++;
+  return stats;
+}, { total: 0, active: 0, admins: 0 });
+
+// Тернарный оператор для условной логики (вложенные тернарники НЕ используем!)
+const userStatus = user.isActive ? 'Активен' : 'Неактивен';
 ```
 
 ### 2. Асинхронное программирование
