@@ -1018,7 +1018,9 @@ const handleUserSelect = (user: User) => {
 ```
 
 ### 2. Тестирование
+Пока в существующих проектах не используйтеся, но к этому стремимся.
 
+Пример тестирования: <ссылка на проект с тестированием>
 ```typescript
 // ✅ Unit тесты компонентов
 import { render, screen, fireEvent } from '@testing-library/react';
