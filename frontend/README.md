@@ -292,7 +292,7 @@ function validateUserData(data) {
 
 ```typescript
 // ✅ Определяй типы для всего
-interface User {
+interface IUser {
   id: string;
   name: string;
   email: string;
@@ -301,7 +301,7 @@ interface User {
   isActive: boolean;
 }
 
-interface ApiResponse<T> {
+interface IApiResponse<T> {
   data: T;
   message: string;
   success: boolean;
