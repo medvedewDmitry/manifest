@@ -618,6 +618,146 @@ final class ProcessUsersBatch implements ShouldQueue
 ### 1. Unit тесты
 
 ```php
+// ✅ Тест с отдельным мок-классом
+
+interface NotificationServiceInterface
+{
+    public function send(string $email, string $message): bool;
+}
+
+class NotificationServiceMock implements NotificationServiceInterface
+{
+    public function send(string $email, string $message): bool
+    {
+        // Можно добавить проверки вызова
+        return true;
+    }
+}
+
+class UserNotifier
+{
+    public function __construct(private NotificationServiceInterface $service) {}
+
+    public function notify(string $email, string $message): bool
+    {
+        return $this->service->send($email, $message);
+    }
+}
+
+final class UserNotifierTest extends TestCase
+{
+    public function test_notifies_user(): void
+    {
+        $mock = new NotificationServiceMock();
+        $notifier = new UserNotifier($mock);
+
+        $result = $notifier->notify('test@example.com', 'Hello!');
+
+        $this->assertTrue($result);
+    }
+}
+```
+
+---
+
+```php
+// ✅ Тест с использованием Mockery
+
+interface NotificationServiceInterface
+{
+    public function send(string $email, string $message): bool;
+}
+
+class UserNotifier
+{
+    public function __construct(private NotificationServiceInterface $service) {}
+
+    public function notify(string $email, string $message): bool
+    {
+        return $this->service->send($email, $message);
+    }
+}
+
+final class UserNotifierTest extends TestCase
+{
+    public function test_notifies_user(): void
+    {
+        $mock = Mockery::mock(NotificationServiceInterface::class);
+        $mock->shouldReceive('send')
+            ->once()
+            ->with('test@example.com', 'Hello!')
+            ->andReturn(true);
+
+        $notifier = new UserNotifier($mock);
+        $result = $notifier->notify('test@example.com', 'Hello!');
+
+        $this->assertTrue($result);
+    }
+}
+
+```
+
+---
+
+```php
+// ✅ Тест с использованием фабрики
+final class UserServiceTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_update_user_email(): void
+    {
+        // Arrange
+        $user = User::factory()->create([
+            'email' => 'old@example.com',
+        ]);
+
+        // Act
+        $service = new UserService();
+        $service->updateEmail($user, 'new@example.com');
+
+        // Assert
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'email' => 'new@example.com',
+        ]);
+    }
+}
+```
+
+---
+
+```php
+// ✅ Тест без использования фабрики
+final class UserServiceTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_update_user_email(): void
+    {
+        // Arrange
+        $user = User::create([
+            'name' => 'Jane Doe',
+            'email' => 'old@example.com',
+            'password' => bcrypt('password'),
+            'role' => 'user',
+        ]);
+
+        // Act
+        $service = new UserService();
+        $service->updateEmail($user, 'new@example.com');
+
+        // Assert
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'email' => 'new@example.com',
+        ]);
+    }
+}
+```
+---
+
+```php
 // ✅ Тестирование сервисов
 final class UserServiceTest extends TestCase
 {
